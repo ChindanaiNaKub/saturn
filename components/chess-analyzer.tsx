@@ -1,0 +1,420 @@
+'use client'
+
+import { useState, useEffect, useMemo } from 'react'
+import { Chess } from 'chess.js'
+import { Chessboard } from 'react-chessboard'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { 
+  SkipBack, 
+  SkipForward, 
+  ChevronLeft, 
+  ChevronRight, 
+  RotateCcw,
+  Play,
+  Pause,
+  Activity,
+  FileText,
+  Info
+} from 'lucide-react'
+import { parsePgn, formatPgnHeaders, formatMovesForDisplay } from '@/lib/pgn-utils'
+
+interface ChessAnalyzerProps {
+  pgnData: string
+  gameIndex: number
+}
+
+export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
+  const [chess] = useState(() => new Chess())
+  const [position, setPosition] = useState(chess.fen())
+  const [currentMoveIndex, setCurrentMoveIndex] = useState(-1)
+  const [boardOrientation, setBoardOrientation] = useState<'white' | 'black'>('white')
+  const [isAutoPlaying, setIsAutoPlaying] = useState(false)
+  const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
+  const [moveHighlights, setMoveHighlights] = useState<{ [square: string]: any }>({})
+
+  const games = useMemo(() => parsePgn(pgnData), [pgnData])
+  const currentGame = games[gameIndex] || null
+
+  // Reset game when gameIndex changes
+  useEffect(() => {
+    if (currentGame) {
+      chess.reset()
+      if (currentGame.headers.FEN) {
+        try {
+          chess.load(currentGame.headers.FEN)
+        } catch (error) {
+          console.error('Invalid FEN in PGN:', error)
+          chess.reset()
+        }
+      }
+      setCurrentMoveIndex(-1)
+      setPosition(chess.fen())
+      setMoveHighlights({})
+    }
+  }, [gameIndex, currentGame])
+
+  // Apply moves up to current index
+  useEffect(() => {
+    if (!currentGame) return
+
+    chess.reset()
+    if (currentGame.headers.FEN) {
+      try {
+        chess.load(currentGame.headers.FEN)
+      } catch (error) {
+        chess.reset()
+      }
+    }
+
+    const highlights: { [square: string]: any } = {}
+    
+    for (let i = 0; i <= currentMoveIndex; i++) {
+      const move = currentGame.moves[i]
+      if (move) {
+        try {
+          const moveObj = chess.move(move)
+          if (moveObj && i === currentMoveIndex) {
+            // Highlight last move
+            highlights[moveObj.from] = { background: 'rgba(255, 255, 0, 0.4)' }
+            highlights[moveObj.to] = { background: 'rgba(255, 255, 0, 0.4)' }
+          }
+        } catch (error) {
+          console.error(`Invalid move at index ${i}:`, move, error)
+          break
+        }
+      }
+    }
+
+    setPosition(chess.fen())
+    setMoveHighlights(highlights)
+  }, [currentMoveIndex, currentGame])
+
+  const goToMove = (moveIndex: number) => {
+    if (!currentGame) return
+    const maxIndex = currentGame.moves.length - 1
+    const newIndex = Math.max(-1, Math.min(maxIndex, moveIndex))
+    setCurrentMoveIndex(newIndex)
+  }
+
+  const goToStart = () => goToMove(-1)
+  const goToEnd = () => goToMove(currentGame ? currentGame.moves.length - 1 : -1)
+  const goToPrevious = () => goToMove(currentMoveIndex - 1)
+  const goToNext = () => goToMove(currentMoveIndex + 1)
+
+  const toggleAutoPlay = () => {
+    setIsAutoPlaying(!isAutoPlaying)
+  }
+
+  const flipBoard = () => {
+    setBoardOrientation(boardOrientation === 'white' ? 'black' : 'white')
+  }
+
+  // Auto-play functionality
+  useEffect(() => {
+    if (!isAutoPlaying || !currentGame) return
+
+    const interval = setInterval(() => {
+      if (currentMoveIndex < currentGame.moves.length - 1) {
+        goToNext()
+      } else {
+        setIsAutoPlaying(false)
+      }
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [isAutoPlaying, currentMoveIndex, currentGame])
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Only handle keyboard events if we have a current game
+      if (!currentGame) return
+
+      // Prevent default behavior for arrow keys to avoid page scrolling
+      if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+        event.preventDefault()
+      }
+
+      switch (event.key) {
+        case 'ArrowLeft':
+          goToPrevious()
+          break
+        case 'ArrowRight':
+          goToNext()
+          break
+        case 'Home':
+          goToStart()
+          break
+        case 'End':
+          goToEnd()
+          break
+        case ' ': // Spacebar for play/pause
+          event.preventDefault()
+          toggleAutoPlay()
+          break
+      }
+    }
+
+    // Add event listener to document
+    document.addEventListener('keydown', handleKeyDown)
+
+    // Cleanup function to remove event listener
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [currentGame, currentMoveIndex, isAutoPlaying]) // Dependencies to ensure we have fresh function references
+
+  const onSquareClick = (square: string) => {
+    setSelectedSquare(selectedSquare === square ? null : square)
+  }
+
+  if (!currentGame) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Card>
+          <CardContent className="p-8 text-center">
+            <FileText className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+            <p className="text-lg text-gray-600">No game selected</p>
+            <p className="text-sm text-gray-500">Upload a PGN file to get started</p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  const formattedMoves = formatMovesForDisplay(currentGame.moves)
+
+  return (
+    <div className="flex h-full gap-4 p-4">
+      {/* Left Panel - Chessboard and Controls */}
+      <div className="flex-shrink-0">
+        <Card className="p-4">
+          <div className="space-y-4">
+            {/* Chessboard */}
+            <div className="chess-board">
+              <Chessboard
+                position={position}
+                boardOrientation={boardOrientation}
+                onSquareClick={onSquareClick}
+                customSquareStyles={moveHighlights}
+                boardWidth={400}
+                animationDuration={200}
+              />
+            </div>
+
+            {/* Board Controls */}
+            <div className="flex items-center justify-between">
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={goToStart}
+                  disabled={currentMoveIndex === -1}
+                >
+                  <SkipBack className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={goToPrevious}
+                  disabled={currentMoveIndex === -1}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={toggleAutoPlay}
+                  className={isAutoPlaying ? 'bg-green-100' : ''}
+                >
+                  {isAutoPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={goToNext}
+                  disabled={!currentGame || currentMoveIndex >= currentGame.moves.length - 1}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={goToEnd}
+                  disabled={!currentGame || currentMoveIndex >= currentGame.moves.length - 1}
+                >
+                  <SkipForward className="h-4 w-4" />
+                </Button>
+              </div>
+              
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={flipBoard}
+              >
+                <RotateCcw className="h-4 w-4" />
+                Flip
+              </Button>
+            </div>
+
+            {/* Move Counter */}
+            <div className="text-center text-sm text-gray-600">
+              Move {Math.max(0, currentMoveIndex + 1)} of {currentGame.moves.length}
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Right Panel - Game Information and Analysis */}
+      <div className="flex-1 min-w-0">
+        <Tabs defaultValue="moves" className="h-full flex flex-col">
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="moves">Moves</TabsTrigger>
+            <TabsTrigger value="info">Game Info</TabsTrigger>
+            <TabsTrigger value="analysis">Analysis</TabsTrigger>
+            <TabsTrigger value="pgn">PGN</TabsTrigger>
+          </TabsList>
+
+          <div className="flex-1 overflow-hidden">
+            <TabsContent value="moves" className="h-full mt-0">
+              <Card className="h-full">
+                <CardHeader>
+                  <CardTitle className="text-lg">Move List</CardTitle>
+                </CardHeader>
+                <CardContent className="overflow-y-auto max-h-[calc(100vh-16rem)]">
+                  <div className="space-y-1">
+                    {formattedMoves.map((move, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center gap-4 p-2 rounded hover:bg-gray-50"
+                      >
+                        <span className="text-sm text-gray-500 w-8">
+                          {move.moveNumber}.
+                        </span>
+                        <div className="flex gap-4 flex-1">
+                          <span
+                            className={`move-notation ${
+                              currentMoveIndex === index * 2 ? 'active' : ''
+                            }`}
+                            onClick={() => goToMove(index * 2)}
+                          >
+                            {move.white}
+                          </span>
+                          {move.black && (
+                            <span
+                              className={`move-notation ${
+                                currentMoveIndex === index * 2 + 1 ? 'active' : ''
+                              }`}
+                              onClick={() => goToMove(index * 2 + 1)}
+                            >
+                              {move.black}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="info" className="h-full mt-0">
+              <Card className="h-full">
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Info className="h-5 w-5" />
+                    Game Information
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="overflow-y-auto">
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <h4 className="font-medium text-gray-900 mb-2">Players</h4>
+                        <div className="space-y-1 text-sm">
+                          <div>White: {currentGame.headers.White || 'Unknown'}</div>
+                          <div>Black: {currentGame.headers.Black || 'Unknown'}</div>
+                          <div>Result: {currentGame.headers.Result || '*'}</div>
+                        </div>
+                      </div>
+                      <div>
+                        <h4 className="font-medium text-gray-900 mb-2">Event Details</h4>
+                        <div className="space-y-1 text-sm">
+                          <div>Event: {currentGame.headers.Event || '-'}</div>
+                          <div>Site: {currentGame.headers.Site || '-'}</div>
+                          <div>Date: {currentGame.headers.Date || '-'}</div>
+                          <div>Round: {currentGame.headers.Round || '-'}</div>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    {(currentGame.headers.WhiteElo || currentGame.headers.BlackElo) && (
+                      <div>
+                        <h4 className="font-medium text-gray-900 mb-2">Ratings</h4>
+                        <div className="space-y-1 text-sm">
+                          {currentGame.headers.WhiteElo && (
+                            <div>White: {currentGame.headers.WhiteElo}</div>
+                          )}
+                          {currentGame.headers.BlackElo && (
+                            <div>Black: {currentGame.headers.BlackElo}</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {currentGame.headers.ECO && (
+                      <div>
+                        <h4 className="font-medium text-gray-900 mb-2">Opening</h4>
+                        <div className="text-sm">
+                          ECO: {currentGame.headers.ECO}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="analysis" className="h-full mt-0">
+              <Card className="h-full">
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Activity className="h-5 w-5" />
+                    Engine Analysis
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-center text-gray-500 py-8">
+                    <Activity className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p>Engine analysis coming soon</p>
+                    <p className="text-sm">Stockfish integration in development</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="pgn" className="h-full mt-0">
+              <Card className="h-full">
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <FileText className="h-5 w-5" />
+                    PGN Text
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="overflow-y-auto">
+                  <div className="pgn-text whitespace-pre-wrap text-sm bg-gray-50 p-4 rounded">
+                    {formatPgnHeaders(currentGame.headers)}
+                    {'\n'}
+                    {currentGame.moves.join(' ')} {currentGame.result}
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </div>
+        </Tabs>
+      </div>
+    </div>
+  )
+} 
