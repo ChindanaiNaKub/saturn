@@ -3,18 +3,27 @@
 import { useState, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Upload, FileText, Link, AlertCircle } from 'lucide-react'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Upload, Link, FileText, Loader2, User } from 'lucide-react'
 import { validatePgn } from '@/lib/pgn-utils'
+import { ChessPlatformImporter } from '@/lib/chess-platform-utils'
 
 interface PgnUploadProps {
-  onPgnUpload: (pgn: string) => void
+  onPgnLoad: (pgn: string) => void
 }
 
-export function PgnUpload({ onPgnUpload }: PgnUploadProps) {
+export function PgnUpload({ onPgnLoad }: PgnUploadProps) {
   const [pgnText, setPgnText] = useState('')
-  const [urlInput, setUrlInput] = useState('')
-  const [errors, setErrors] = useState<string[]>([])
-  const [loading, setLoading] = useState(false)
+  const [url, setUrl] = useState('')
+  const [error, setError] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const [platform, setPlatform] = useState<'chess.com' | 'lichess'>('chess.com')
+  const [username, setUsername] = useState('')
+  const [importYear, setImportYear] = useState(new Date().getFullYear())
+  const [importMonth, setImportMonth] = useState(new Date().getMonth() + 1)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -29,46 +38,48 @@ export function PgnUpload({ onPgnUpload }: PgnUploadProps) {
     reader.readAsText(file)
   }
 
-  const handlePasteUpload = () => {
+  const handleTextSubmit = () => {
     if (!pgnText.trim()) {
-      setErrors(['Please enter PGN text'])
+      setError('Please enter PGN text')
       return
     }
     processPgnText(pgnText)
   }
 
-  const handleUrlUpload = async () => {
-    if (!urlInput.trim()) {
-      setErrors(['Please enter a URL'])
+  const handleUrlSubmit = async () => {
+    if (!url.trim()) {
+      setError('Please enter a URL')
       return
     }
 
-    setLoading(true)
+    setIsLoading(true)
+    setError('')
+
     try {
-      const response = await fetch(urlInput)
+      const response = await fetch(url)
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
       const content = await response.text()
       processPgnText(content)
     } catch (error) {
-      setErrors([`Failed to load from URL: ${error instanceof Error ? error.message : 'Unknown error'}`])
+      setError(`Failed to load from URL: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
-      setLoading(false)
+      setIsLoading(false)
     }
   }
 
   const processPgnText = (text: string) => {
     const validation = validatePgn(text)
     if (validation.isValid) {
-      setErrors([])
-      onPgnUpload(text)
+      setError('')
+      onPgnLoad(text)
     } else {
-      setErrors(validation.errors)
+      setError(validation.error || 'Invalid PGN format')
     }
   }
 
-  const loadSamplePgn = () => {
+  const loadSampleGame = () => {
     const samplePgn = `[Event "F/S Return Match"]
 [Site "Belgrade, Serbia JUG"]
 [Date "1992.11.04"]
@@ -81,127 +92,236 @@ export function PgnUpload({ onPgnUpload }: PgnUploadProps) {
     processPgnText(samplePgn)
   }
 
+  const handlePlatformImport = async () => {
+    if (!username.trim()) {
+      setError('Please enter a username')
+      return
+    }
+
+    setIsLoading(true)
+    setError('')
+
+    try {
+      let games
+      if (platform === 'chess.com') {
+        games = await ChessPlatformImporter.fetchChessComGames(username, importYear, importMonth)
+      } else {
+        games = await ChessPlatformImporter.fetchLichessGames(username, 20)
+      }
+
+      if (games.length === 0) {
+        setError('No games found for this user')
+        return
+      }
+
+      // Combine all PGNs
+      const combinedPgn = games.map(game => game.pgn).join('\n\n')
+      
+      const validation = validatePgn(combinedPgn)
+      if (validation.isValid) {
+        onPgnLoad(combinedPgn)
+      } else {
+        setError(validation.error || 'Invalid PGN format')
+      }
+    } catch (error) {
+      setError(`Failed to import games: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const currentYear = new Date().getFullYear()
+  const years = Array.from({ length: 10 }, (_, i) => currentYear - i)
+  const months = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ]
+
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* File Upload */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Upload className="h-5 w-5" />
-              Upload File
-            </CardTitle>
-            <CardDescription>
-              Upload a PGN file from your computer
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pgn,.txt"
-              onChange={handleFileUpload}
-              className="hidden"
-            />
-            <Button 
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full"
-              variant="outline"
-            >
-              Choose File
-            </Button>
-          </CardContent>
-        </Card>
+    <Card className="w-full max-w-4xl mx-auto">
+      <CardHeader>
+        <CardTitle>Upload PGN Chess Game</CardTitle>
+        <CardDescription>
+          Upload a PGN file, paste PGN text, import from URL, or fetch from chess platforms
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Tabs defaultValue="upload">
+          <TabsList className="grid w-full grid-cols-5">
+            <TabsTrigger value="upload">Upload</TabsTrigger>
+            <TabsTrigger value="paste">Paste</TabsTrigger>
+            <TabsTrigger value="url">URL</TabsTrigger>
+            <TabsTrigger value="platform">Import</TabsTrigger>
+            <TabsTrigger value="sample">Sample</TabsTrigger>
+          </TabsList>
 
-        {/* Paste Text */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5" />
-              Paste PGN
-            </CardTitle>
-            <CardDescription>
-              Paste PGN text directly
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <textarea
-              value={pgnText}
-              onChange={(e) => setPgnText(e.target.value)}
-              placeholder="Paste your PGN text here..."
-              className="w-full h-24 p-3 border rounded-md resize-none text-sm font-mono"
-            />
-            <Button 
-              onClick={handlePasteUpload}
-              className="w-full"
-              variant="outline"
-            >
-              Load PGN
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* URL Load */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Link className="h-5 w-5" />
-              Load from URL
-            </CardTitle>
-            <CardDescription>
-              Load PGN from a web URL
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <input
-              type="url"
-              value={urlInput}
-              onChange={(e) => setUrlInput(e.target.value)}
-              placeholder="https://example.com/game.pgn"
-              className="w-full p-3 border rounded-md text-sm"
-            />
-            <Button 
-              onClick={handleUrlUpload}
-              disabled={loading}
-              className="w-full"
-              variant="outline"
-            >
-              {loading ? 'Loading...' : 'Load from URL'}
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Sample PGN */}
-      <div className="text-center">
-        <p className="text-sm text-gray-600 mb-4">
-          Don't have a PGN file? Try a sample game:
-        </p>
-        <Button onClick={loadSamplePgn} variant="secondary">
-          Load Fischer vs Spassky (1992)
-        </Button>
-      </div>
-
-      {/* Error Display */}
-      {errors.length > 0 && (
-        <Card className="border-red-200 bg-red-50">
-          <CardContent className="pt-6">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="h-5 w-5 text-red-500 mt-0.5" />
-              <div>
-                <h4 className="font-medium text-red-800 mb-2">
-                  Error loading PGN
-                </h4>
-                <ul className="text-sm text-red-700 space-y-1">
-                  {errors.map((error, index) => (
-                    <li key={index}>• {error}</li>
-                  ))}
-                </ul>
-              </div>
+          <TabsContent value="upload" className="space-y-4">
+            <div className="space-y-4">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pgn,.txt"
+                onChange={handleFileUpload}
+                className="hidden"
+              />
+              <Button 
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full"
+                variant="outline"
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                Choose File
+              </Button>
             </div>
-          </CardContent>
-        </Card>
-      )}
-    </div>
+          </TabsContent>
+
+          <TabsContent value="paste" className="space-y-4">
+            <div className="space-y-4">
+              <textarea
+                value={pgnText}
+                onChange={(e) => setPgnText(e.target.value)}
+                placeholder="Paste your PGN text here..."
+                className="w-full h-24 p-3 border rounded-md resize-none text-sm font-mono"
+              />
+              <Button 
+                onClick={handleTextSubmit}
+                className="w-full"
+                variant="outline"
+              >
+                Load PGN
+              </Button>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="url" className="space-y-4">
+            <div className="space-y-4">
+              <input
+                type="url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="https://example.com/game.pgn"
+                className="w-full p-3 border rounded-md text-sm"
+              />
+              <Button 
+                onClick={handleUrlSubmit}
+                disabled={isLoading}
+                className="w-full"
+                variant="outline"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  <Link className="mr-2 h-4 w-4" />
+                )}
+                Load from URL
+              </Button>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="platform" className="space-y-4">
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="platform">Platform</Label>
+                <Select value={platform} onValueChange={(value: 'chess.com' | 'lichess') => setPlatform(value)}>
+                  <SelectTrigger id="platform">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="chess.com">Chess.com</SelectItem>
+                    <SelectItem value="lichess">Lichess.org</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label htmlFor="username">Username</Label>
+                <Input
+                  id="username"
+                  type="text"
+                  placeholder={`Enter ${platform === 'chess.com' ? 'Chess.com' : 'Lichess'} username`}
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                />
+              </div>
+
+              {platform === 'chess.com' && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="year">Year</Label>
+                    <Select value={importYear.toString()} onValueChange={(value) => setImportYear(parseInt(value))}>
+                      <SelectTrigger id="year">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {years.map(year => (
+                          <SelectItem key={year} value={year.toString()}>{year}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="month">Month</Label>
+                    <Select value={importMonth.toString()} onValueChange={(value) => setImportMonth(parseInt(value))}>
+                      <SelectTrigger id="month">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {months.map((month, index) => (
+                          <SelectItem key={index} value={(index + 1).toString()}>{month}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
+
+              <Button 
+                onClick={handlePlatformImport} 
+                className="w-full"
+                disabled={isLoading || !username.trim()}
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Importing games...
+                  </>
+                ) : (
+                  <>
+                    <User className="mr-2 h-4 w-4" />
+                    Import Games
+                  </>
+                )}
+              </Button>
+              
+              <p className="text-sm text-gray-500">
+                {platform === 'chess.com' 
+                  ? 'Import games from a specific month'
+                  : 'Import the last 20 games'}
+              </p>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="sample" className="space-y-4">
+            <div className="text-center">
+              <p className="mb-4">Load a famous chess game to explore the features</p>
+              <Button onClick={loadSampleGame} className="w-full">
+                <FileText className="mr-2 h-4 w-4" />
+                Load Fischer vs Spassky (1972)
+              </Button>
+            </div>
+          </TabsContent>
+        </Tabs>
+
+        {error && (
+          <div className="mt-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded">
+            {error}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 } 

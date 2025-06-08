@@ -43,7 +43,7 @@ export default function Home() {
                     Upload and analyze your chess games with powerful tools and engine analysis
                   </p>
                 </div>
-                <PgnUpload onPgnUpload={handlePgnUpload} />
+                <PgnUpload onPgnLoad={handlePgnUpload} />
               </div>
             </div>
           ) : (
