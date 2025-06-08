@@ -45,6 +45,7 @@ export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
   const [engineAnalysis, setEngineAnalysis] = useState<EngineAnalysis | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [engineReady, setEngineReady] = useState(false)
+  const [engineError, setEngineError] = useState<string | null>(null)
   const [showBestMove, setShowBestMove] = useState(true)
   const [detectedOpening, setDetectedOpening] = useState<{ eco: string; name: string } | null>(null)
 
@@ -53,12 +54,28 @@ export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
 
   // Initialize Stockfish engine
   useEffect(() => {
+    let retryCount = 0
+    const maxRetries = 3
+    
     const initEngine = async () => {
       try {
+        console.log('Initializing Stockfish engine...')
+        setEngineError(null)
         const engine = await getStockfishEngine()
+        console.log('Stockfish engine ready!')
         setEngineReady(true)
+        setEngineError(null)
       } catch (error) {
         console.error('Failed to initialize Stockfish:', error)
+        setEngineReady(false)
+        
+        if (retryCount < maxRetries) {
+          retryCount++
+          console.log(`Retrying engine initialization (${retryCount}/${maxRetries})...`)
+          setTimeout(initEngine, 1000) // Retry after 1 second
+        } else {
+          setEngineError('Failed to load chess engine. Please refresh the page.')
+        }
       }
     }
     initEngine()
@@ -71,22 +88,29 @@ export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
 
   // Analyze position when it changes
   useEffect(() => {
-    if (!engineReady || !currentGame) return
+    if (!engineReady || !currentGame) {
+      console.log('[ChessAnalyzer] Skipping analysis - engineReady:', engineReady, 'currentGame:', !!currentGame)
+      return
+    }
 
     const analyzeCurrentPosition = async () => {
+      console.log('[ChessAnalyzer] Starting position analysis')
       setIsAnalyzing(true)
       try {
         const engine = await getStockfishEngine()
+        console.log('[ChessAnalyzer] Got engine instance, analyzing position:', position)
         const analysis = await engine.analyzePosition(
           position, 
-          15,
+          10, // Reduced depth for faster analysis
           (progressAnalysis) => {
+            console.log('[ChessAnalyzer] Progress update:', progressAnalysis)
             setEngineAnalysis(progressAnalysis)
           }
         )
+        console.log('[ChessAnalyzer] Final analysis:', analysis)
         setEngineAnalysis(analysis)
       } catch (error) {
-        console.error('Analysis error:', error)
+        console.error('[ChessAnalyzer] Analysis error:', error)
       } finally {
         setIsAnalyzing(false)
       }
@@ -621,10 +645,24 @@ export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
                         </div>
                       )}
                     </>
+                  ) : engineError ? (
+                    <div className="text-center text-red-500 py-8">
+                      <AlertTriangle className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                      <p>{engineError}</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => window.location.reload()}
+                        className="mt-4"
+                      >
+                        Refresh Page
+                      </Button>
+                    </div>
                   ) : (
                     <div className="text-center text-gray-500 py-8">
-                      <Activity className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                      <Activity className="h-12 w-12 mx-auto mb-4 opacity-50 animate-spin" />
                       <p>Loading chess engine...</p>
+                      <p className="text-xs mt-2">This may take a few seconds</p>
                     </div>
                   )}
                 </CardContent>
