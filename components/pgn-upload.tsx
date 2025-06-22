@@ -75,7 +75,7 @@ export function PgnUpload({ onPgnLoad }: PgnUploadProps) {
       setError('')
       onPgnLoad(text)
     } else {
-      setError(validation.error || 'Invalid PGN format')
+      setError(validation.errors[0] || 'Invalid PGN format')
     }
   }
 
@@ -121,7 +121,7 @@ export function PgnUpload({ onPgnLoad }: PgnUploadProps) {
       if (validation.isValid) {
         onPgnLoad(combinedPgn)
       } else {
-        setError(validation.error || 'Invalid PGN format')
+        setError(validation.errors[0] || 'Invalid PGN format')
       }
     } catch (error) {
       setError(`Failed to import games: ${error instanceof Error ? error.message : 'Unknown error'}`)
