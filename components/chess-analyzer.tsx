@@ -1,11 +1,18 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { Chess } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { 
   SkipBack, 
   SkipForward, 
@@ -23,11 +30,47 @@ import {
   TrendingUp,
   TrendingDown,
   AlertTriangle,
-  Book
+  BookOpen,
+  CheckCircle2,
+  XCircle,
+  ChevronDown as ChevronDownIcon,
+  Gem,
+  Star,
+  ThumbsUp,
+  HelpCircle,
+  AlertCircle,
+  Bomb
 } from 'lucide-react'
-import { parsePgn, formatPgnHeaders, formatMovesForDisplay } from '@/lib/pgn-utils'
-import { getStockfishEngine, destroyStockfishEngine, type EngineAnalysis } from '@/lib/stockfish-utils'
+import { parsePgn, formatPgnHeaders, formatMovesForDisplay, type MoveAnalysis, type MoveClassification } from '@/lib/pgn-utils'
+import { getStockfishEngine, destroyStockfishEngine, testStockfishEngine, type EngineAnalysis } from '@/lib/stockfish-utils'
 import { identifyOpening, getOpeningName } from '@/lib/opening-database'
+import { exportEngineLogs } from '@/lib/engine-logger'
+
+const ClassificationIcon = ({ analysis }: { analysis: MoveAnalysis }) => {
+  const iconMap: Record<MoveClassification, { icon: React.ReactNode; className: string; label: string }> = {
+    brilliant: { icon: <Gem />, className: 'text-cyan-400', label: 'Brilliant' },
+    great: { icon: <Star />, className: 'text-sky-500', label: 'Great Move' },
+    best: { icon: <CheckCircle2 />, className: 'text-green-500', label: 'Best Move' },
+    excellent: { icon: <ThumbsUp />, className: 'text-lime-500', label: 'Excellent' },
+    good: { icon: null, className: '', label: 'Good' },
+    book: { icon: <BookOpen />, className: 'text-violet-500', label: 'Book Move' },
+    inaccuracy: { icon: <HelpCircle />, className: 'text-yellow-500', label: 'Inaccuracy' },
+    mistake: { icon: <AlertCircle />, className: 'text-orange-500', label: 'Mistake' },
+    blunder: { icon: <Bomb />, className: 'text-red-600', label: 'Blunder' },
+  };
+
+  const data = iconMap[analysis.classification];
+
+  if (!data || !data.icon) {
+    return null;
+  }
+
+  return (
+    <span title={`${data.label} (cp loss: ${analysis.centipawnLoss})`} className={`inline-flex items-center ml-1 ${data.className}`}>
+      {React.cloneElement(data.icon as React.ReactElement, { className: 'h-4 w-4' })}
+    </span>
+  );
+};
 
 interface ChessAnalyzerProps {
   pgnData: string
@@ -42,12 +85,17 @@ export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
   const [isAutoPlaying, setIsAutoPlaying] = useState(false)
   const [selectedSquare, setSelectedSquare] = useState<string | null>(null)
   const [moveHighlights, setMoveHighlights] = useState<{ [square: string]: any }>({})
+  const [customArrows, setCustomArrows] = useState<Array<[string, string]>>([])
   const [engineAnalysis, setEngineAnalysis] = useState<EngineAnalysis | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [engineReady, setEngineReady] = useState(false)
   const [engineError, setEngineError] = useState<string | null>(null)
   const [showBestMove, setShowBestMove] = useState(true)
   const [detectedOpening, setDetectedOpening] = useState<{ eco: string; name: string } | null>(null)
+  const [gameAnalysis, setGameAnalysis] = useState<(MoveAnalysis | null)[] | null>(null)
+  const [isReviewing, setIsReviewing] = useState(false)
+  const [reviewProgress, setReviewProgress] = useState(0)
+  const [analysisDepth, setAnalysisDepth] = useState(12)
 
   const games = useMemo(() => parsePgn(pgnData), [pgnData])
   const currentGame = games[gameIndex] || null
@@ -72,9 +120,10 @@ export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
         if (retryCount < maxRetries) {
           retryCount++
           console.log(`Retrying engine initialization (${retryCount}/${maxRetries})...`)
-          setTimeout(initEngine, 1000) // Retry after 1 second
+          setTimeout(initEngine, 2000) // Retry after 2 seconds
         } else {
-          setEngineError('Failed to load chess engine. Please refresh the page.')
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+          setEngineError(`Failed to load chess engine: ${errorMessage}. Please refresh the page.`)
         }
       }
     }
@@ -101,7 +150,7 @@ export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
         console.log('[ChessAnalyzer] Got engine instance, analyzing position:', position)
         const analysis = await engine.analyzePosition(
           position, 
-          10, // Reduced depth for faster analysis
+          analysisDepth,
           (progressAnalysis) => {
             console.log('[ChessAnalyzer] Progress update:', progressAnalysis)
             setEngineAnalysis(progressAnalysis)
@@ -117,7 +166,7 @@ export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
     }
 
     analyzeCurrentPosition()
-  }, [position, engineReady, currentGame])
+  }, [position, engineReady, currentGame, analysisDepth])
 
   // Reset game when gameIndex changes
   useEffect(() => {
@@ -134,8 +183,10 @@ export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
       setCurrentMoveIndex(-1)
       setPosition(chess.fen())
       setMoveHighlights({})
+      setCustomArrows([])
+      setGameAnalysis(null)
     }
-  }, [gameIndex, currentGame])
+  }, [gameIndex, currentGame, chess])
 
   // Apply moves up to current index
   useEffect(() => {
@@ -151,6 +202,7 @@ export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
     }
 
     const highlights: { [square: string]: any } = {}
+    const arrows: Array<[string, string]> = []
     
     for (let i = 0; i <= currentMoveIndex; i++) {
       const move = currentGame.moves[i]
@@ -169,17 +221,17 @@ export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
       }
     }
 
-    // Add best move highlight if enabled
+    // Add best move arrow if enabled
     if (showBestMove && engineAnalysis?.bestMove && engineAnalysis.bestMove.length >= 4) {
       const from = engineAnalysis.bestMove.substring(0, 2)
       const to = engineAnalysis.bestMove.substring(2, 4)
-      highlights[from] = { ...highlights[from], border: '3px solid #22c55e' }
-      highlights[to] = { ...highlights[to], border: '3px solid #22c55e' }
+      arrows.push([from, to])
     }
 
     setPosition(chess.fen())
     setMoveHighlights(highlights)
-  }, [currentMoveIndex, currentGame, showBestMove, engineAnalysis?.bestMove])
+    setCustomArrows(arrows)
+  }, [currentMoveIndex, currentGame, showBestMove, engineAnalysis?.bestMove, chess])
 
   // Identify opening when moves change
   useEffect(() => {
@@ -241,47 +293,28 @@ export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
     }, 1000)
 
     return () => clearInterval(interval)
-  }, [isAutoPlaying, currentMoveIndex, currentGame])
+  }, [isAutoPlaying, currentMoveIndex, currentGame, goToNext])
 
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Only handle keyboard events if we have a current game
       if (!currentGame) return
-
-      // Prevent default behavior for arrow keys to avoid page scrolling
       if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
         event.preventDefault()
       }
-
       switch (event.key) {
-        case 'ArrowLeft':
-          goToPrevious()
-          break
-        case 'ArrowRight':
-          goToNext()
-          break
-        case 'Home':
-          goToStart()
-          break
-        case 'End':
-          goToEnd()
-          break
-        case ' ': // Spacebar for play/pause
-          event.preventDefault()
-          toggleAutoPlay()
-          break
+        case 'ArrowLeft': goToPrevious(); break
+        case 'ArrowRight': goToNext(); break
+        case 'Home': goToStart(); break
+        case 'End': goToEnd(); break
+        case ' ': event.preventDefault(); toggleAutoPlay(); break
       }
     }
-
-    // Add event listener to document
     document.addEventListener('keydown', handleKeyDown)
-
-    // Cleanup function to remove event listener
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [currentGame, currentMoveIndex, isAutoPlaying]) // Dependencies to ensure we have fresh function references
+  }, [currentGame, goToPrevious, goToNext, goToStart, goToEnd, toggleAutoPlay])
 
   const onSquareClick = (square: string) => {
     setSelectedSquare(selectedSquare === square ? null : square)
@@ -289,10 +322,8 @@ export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
 
   const downloadPgn = () => {
     if (!currentGame) return
-
     const pgnText = formatPgnHeaders(currentGame.headers) + '\n' + 
                    currentGame.moves.join(' ') + ' ' + currentGame.result
-
     const blob = new Blob([pgnText], { type: 'text/plain' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -302,31 +333,119 @@ export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
     URL.revokeObjectURL(url)
   }
 
-  const copyFen = () => {
-    navigator.clipboard.writeText(position)
+  const classifyEvaluation = (evalBefore: number, evalAfter: number, player: 'w' | 'b'): MoveAnalysis => {
+    const change = player === 'w' ? evalBefore - evalAfter : evalAfter - evalBefore;
+    const centipawnLoss = Math.max(0, Math.round(change * 100));
+
+    let classification: MoveClassification;
+    if (centipawnLoss <= 2) {
+      classification = 'best';
+    } else if (centipawnLoss <= 15) {
+      classification = 'excellent';
+    } else if (centipawnLoss <= 40) {
+      classification = 'good';
+    } else if (centipawnLoss <= 90) {
+      classification = 'inaccuracy';
+    } else if (centipawnLoss <= 200) {
+      classification = 'mistake';
+    } else {
+      classification = 'blunder';
+    }
+
+    return { classification, centipawnLoss };
+  };
+
+  const handleReviewGame = async () => {
+    if (!currentGame || !engineReady) return;
+
+    setIsReviewing(true);
+    setGameAnalysis(null);
+    setReviewProgress(0);
+
+    const engine = await getStockfishEngine();
+    const tempChess = new Chess();
+    if (currentGame.headers.FEN) {
+      tempChess.load(currentGame.headers.FEN);
+    }
+    
+    const analysisResults: (MoveAnalysis | null)[] = [];
+    let lastEval = 0;
+
+    const reviewDepth = 18;
+    const initialAnalysis = await engine.analyzePosition(tempChess.fen(), reviewDepth);
+    lastEval = initialAnalysis.evaluation;
+
+    for (let i = 0; i < currentGame.moves.length; i++) {
+      setReviewProgress(((i + 1) / currentGame.moves.length) * 100);
+      const move = currentGame.moves[i];
+      const player = tempChess.turn();
+
+      const movesSoFar = currentGame.moves.slice(0, i + 1);
+      const opening = identifyOpening(movesSoFar);
+      
+      if (i < 12 && opening && opening.moves.length === movesSoFar.length) {
+        analysisResults.push({ classification: 'book', centipawnLoss: 0, comment: opening.name });
+        tempChess.move(move);
+        const fenAfterMove = tempChess.fen();
+        const analysisAfter = await engine.analyzePosition(fenAfterMove, reviewDepth);
+        lastEval = analysisAfter.evaluation;
+        continue;
+      }
+      
+      tempChess.move(move);
+      const fenAfterMove = tempChess.fen();
+      const analysisAfter = await engine.analyzePosition(fenAfterMove, reviewDepth);
+      const currentEval = analysisAfter.evaluation;
+      
+      const moveClassification = classifyEvaluation(lastEval, currentEval, player);
+      analysisResults.push(moveClassification);
+      
+      lastEval = currentEval;
+    }
+
+    setGameAnalysis(analysisResults);
+    setIsReviewing(false);
+  };
+
+  const testEngine = async () => {
+    try {
+      console.log('Testing engine...')
+      const success = await testStockfishEngine()
+      if (success) {
+        alert('Engine test successful! Check console for details.')
+      } else {
+        alert('Engine test failed! Check console for details.')
+      }
+    } catch (error) {
+      console.error('Engine test error:', error)
+      alert('Engine test error: ' + String(error))
+    }
   }
 
   const getEvaluationBar = () => {
-    if (!engineAnalysis) return 50 // Default to equal position
-    
+    if (!engineAnalysis) return 50
     const eval_ = engineAnalysis.evaluation
-    // Convert evaluation to percentage (capped at +/- 10 pawns)
     const cappedEval = Math.max(-10, Math.min(10, eval_))
-    const percentage = 50 + (cappedEval * 5) // Each pawn = 5%
-    
+    const percentage = 50 + (cappedEval * 5)
     return Math.max(0, Math.min(100, percentage))
   }
 
   const formatEvaluation = () => {
     if (!engineAnalysis) return '0.0'
-    
     if (engineAnalysis.mate !== undefined) {
       return `M${Math.abs(engineAnalysis.mate)}`
     }
-    
     return engineAnalysis.evaluation > 0 ? 
       `+${engineAnalysis.evaluation.toFixed(1)}` : 
       engineAnalysis.evaluation.toFixed(1)
+  }
+
+  const getEvaluationColor = () => {
+    if (!engineAnalysis) return 'text-gray-800 dark:text-gray-200'
+    if (engineAnalysis.mate) return engineAnalysis.mate > 0 ? 'text-green-600' : 'text-red-600'
+    if (engineAnalysis.evaluation > 0.5) return 'text-green-600'
+    if (engineAnalysis.evaluation < -0.5) return 'text-red-600'
+    return 'text-gray-800 dark:text-gray-200'
   }
 
   if (!currentGame) {
@@ -352,67 +471,49 @@ export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
         <Card className="p-4">
           <div className="space-y-4">
             {/* Chessboard */}
-            <div className="chess-board">
-              <Chessboard
-                position={position}
-                boardOrientation={boardOrientation}
-                onSquareClick={onSquareClick}
-                customSquareStyles={moveHighlights}
-                boardWidth={400}
-                animationDuration={200}
-              />
+            <div className="flex gap-2">
+              {engineReady && (
+                <div className="relative w-4 h-[400px] bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                  <div
+                    className="absolute bottom-0 left-0 w-full bg-white dark:bg-gray-200 transition-all duration-300 ease-in-out"
+                    style={{ height: `${getEvaluationBar()}%` }}
+                  />
+                </div>
+              )}
+              <div className="chess-board">
+                <Chessboard
+                  position={position}
+                  boardOrientation={boardOrientation}
+                  onSquareClick={onSquareClick}
+                  customSquareStyles={moveHighlights}
+                  customArrows={customArrows as any}
+                  boardWidth={400}
+                  animationDuration={200}
+                />
+              </div>
             </div>
 
             {/* Board Controls */}
             <div className="flex items-center justify-between">
               <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={goToStart}
-                  disabled={currentMoveIndex === -1}
-                >
+                <Button variant="outline" size="sm" onClick={goToStart} disabled={currentMoveIndex === -1}>
                   <SkipBack className="h-4 w-4" />
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={goToPrevious}
-                  disabled={currentMoveIndex === -1}
-                >
+                <Button variant="outline" size="sm" onClick={goToPrevious} disabled={currentMoveIndex === -1}>
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={toggleAutoPlay}
-                  className={isAutoPlaying ? 'bg-green-100' : ''}
-                >
+                <Button variant="outline" size="sm" onClick={toggleAutoPlay} className={isAutoPlaying ? 'bg-green-100' : ''}>
                   {isAutoPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={goToNext}
-                  disabled={!currentGame || currentMoveIndex >= currentGame.moves.length - 1}
-                >
+                <Button variant="outline" size="sm" onClick={goToNext} disabled={!currentGame || currentMoveIndex >= currentGame.moves.length - 1}>
                   <ChevronRight className="h-4 w-4" />
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={goToEnd}
-                  disabled={!currentGame || currentMoveIndex >= currentGame.moves.length - 1}
-                >
+                <Button variant="outline" size="sm" onClick={goToEnd} disabled={!currentGame || currentMoveIndex >= currentGame.moves.length - 1}>
                   <SkipForward className="h-4 w-4" />
                 </Button>
               </div>
               
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={flipBoard}
-              >
+              <Button variant="outline" size="sm" onClick={flipBoard}>
                 <RotateCcw className="h-4 w-4" />
                 Flip
               </Button>
@@ -460,6 +561,7 @@ export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
                             onClick={() => goToMove(index * 2)}
                           >
                             {move.white}
+                            {gameAnalysis && gameAnalysis[index * 2] && <ClassificationIcon analysis={gameAnalysis[index * 2]!} />}
                           </span>
                           {move.black && (
                             <span
@@ -469,6 +571,7 @@ export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
                               onClick={() => goToMove(index * 2 + 1)}
                             >
                               {move.black}
+                              {gameAnalysis && gameAnalysis[index * 2 + 1] && <ClassificationIcon analysis={gameAnalysis[index * 2 + 1]!} />}
                             </span>
                           )}
                         </div>
@@ -526,7 +629,7 @@ export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
                     {(detectedOpening || currentGame.headers.ECO) && (
                       <div>
                         <h4 className="font-medium text-gray-900 mb-2 flex items-center gap-2">
-                          <Book className="h-4 w-4" />
+                          <BookOpen className="h-4 w-4" />
                           Opening
                         </h4>
                         <div className="space-y-1 text-sm">
@@ -561,41 +664,58 @@ export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
                       <Brain className="h-5 w-5" />
                       Engine Analysis
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowBestMove(!showBestMove)}
-                      className={showBestMove ? 'bg-green-100' : ''}
-                    >
-                      Show Best Move
-                    </Button>
+                    <div className="flex items-center gap-2">
+                       <Button
+                         variant="outline"
+                         size="sm"
+                         onClick={() => setShowBestMove(!showBestMove)}
+                         className={showBestMove ? 'bg-green-100' : ''}
+                       >
+                         {showBestMove ? 'Hide Arrows' : 'Show Arrows'}
+                       </Button>
+                      <Select value={String(analysisDepth)} onValueChange={(value) => setAnalysisDepth(Number(value))}>
+                        <SelectTrigger className="w-[180px]">
+                          <SelectValue placeholder="Set Engine Depth" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="8">Depth 8 (Fastest)</SelectItem>
+                          <SelectItem value="12">Depth 12 (Default)</SelectItem>
+                          <SelectItem value="15">Depth 15 (Strong)</SelectItem>
+                          <SelectItem value="18">Depth 18 (Very Strong)</SelectItem>
+                          <SelectItem value="20">Depth 20 (Deep)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={handleReviewGame}
+                        disabled={isReviewing || !engineReady}
+                      >
+                        {isReviewing ? `Reviewing... (${Math.round(reviewProgress)}%)` : 'Review Game'}
+                      </Button>
+                    </div>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {isReviewing && (
+                    <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700 mb-4">
+                      <div
+                        className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                        style={{ width: `${reviewProgress}%` }}
+                      />
+                    </div>
+                  )}
                   {engineReady ? (
                     <>
-                      {/* Evaluation Bar */}
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-sm font-medium">
-                          <span>Evaluation</span>
-                          <span className={engineAnalysis?.evaluation || 0 > 0 ? 'text-green-600' : 'text-red-600'}>
-                            {formatEvaluation()}
-                          </span>
-                        </div>
-                        <div className="relative h-8 bg-gray-200 rounded overflow-hidden">
-                          <div 
-                            className="absolute left-0 top-0 h-full bg-white transition-all duration-300"
-                            style={{ width: `${getEvaluationBar()}%` }}
-                          />
-                          <div className="absolute inset-0 flex items-center justify-center text-xs font-medium">
-                            {chess.turn() === 'w' ? 'White to move' : 'Black to move'}
-                          </div>
-                        </div>
-                      </div>
-
                       {/* Engine Details */}
-                      {engineAnalysis && (
+                      {engineAnalysis ? (
                         <div className="space-y-3">
+                           <div className="flex justify-between text-sm font-medium">
+                            <span>Evaluation</span>
+                            <span className={`font-semibold ${getEvaluationColor()}`}>
+                              {formatEvaluation()}
+                            </span>
+                          </div>
                           {/* Best Move */}
                           <div className="flex items-start gap-2">
                             <TrendingUp className="h-4 w-4 text-green-600 mt-0.5" />
@@ -604,6 +724,11 @@ export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
                               <div className="text-sm text-gray-600">
                                 {engineAnalysis.bestMove || 'Calculating...'}
                               </div>
+                              {showBestMove && engineAnalysis.bestMove && (
+                                <div className="text-xs text-green-600 mt-1">
+                                  → Shown as green arrow on board
+                                </div>
+                              )}
                             </div>
                           </div>
 
@@ -643,6 +768,11 @@ export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
                             </div>
                           )}
                         </div>
+                      ) : (
+                         <div className="text-center text-gray-500 py-8">
+                           <p>No analysis data available.</p>
+                           <p className="text-xs mt-2">Make a move to start analysis.</p>
+                         </div>
                       )}
                     </>
                   ) : engineError ? (
@@ -667,6 +797,14 @@ export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
                   )}
                 </CardContent>
               </Card>
+              <div className="flex justify-end mt-2">
+                <Button variant="outline" size="sm" onClick={exportEngineLogs}>
+                  Download Engine Logs
+                </Button>
+                <Button variant="outline" size="sm" onClick={testEngine} className="ml-2">
+                  Test Engine
+                </Button>
+              </div>
             </TabsContent>
 
             <TabsContent value="pgn" className="h-full mt-0">
@@ -681,7 +819,7 @@ export function ChessAnalyzer({ pgnData, gameIndex }: ChessAnalyzerProps) {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={copyFen}
+                        onClick={() => navigator.clipboard.writeText(position)}
                       >
                         <Copy className="h-4 w-4 mr-1" />
                         Copy FEN

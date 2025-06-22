@@ -82,6 +82,28 @@
   overflow: hidden;
 }
 
+/* Custom arrow styles for best move visualization */
+.chess-board svg[data-arrow] {
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+  z-index: 10;
+}
+
+.chess-board svg[data-arrow] path {
+  stroke-width: 4;
+  stroke: #16a34a;
+  fill: none;
+  opacity: 0.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.chess-board svg[data-arrow] polygon {
+  fill: #16a34a;
+  opacity: 0.9;
+  stroke: #16a34a;
+  stroke-width: 1;
+}
+
 .move-highlight {
   background-color: rgba(255, 255, 0, 0.5) !important;
 }

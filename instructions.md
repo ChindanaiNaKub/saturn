@@ -71,7 +71,6 @@ You will be using NextJs, shadcn, tailwind, Lucid icon
    - ✅ Auto-play mode
    - ✅ Board orientation toggle
    - ✅ Move highlighting
-   - ✅ Responsive design
 
 3. **PGN Information Display** - COMPLETE
    - ✅ Game headers display (Event, Site, Date, Players, etc.)
@@ -80,30 +79,27 @@ You will be using NextJs, shadcn, tailwind, Lucid icon
    - ✅ Game result and meta information
    - ✅ Multiple game support with sidebar
 
-4. **User Interface** - COMPLETE
+4. **Engine Analysis** - COMPLETE
+    - ✅ Stockfish WebAssembly integration
+    - ✅ Real-time position evaluation
+    - ✅ Best move suggestions with arrow visualization
+    - ✅ Vertical evaluation bar next to the chessboard
+
+5. **User Interface** - COMPLETE
    - ✅ Modern, responsive design using shadcn/ui
    - ✅ Clean and intuitive layout
    - ✅ Mobile-friendly interface
    - ✅ Tab-based organization
    - ✅ Sidebar game navigation
 
-5. **Basic Analysis Tools** - PARTIAL
-   - ✅ Last move highlighting
-   - ✅ Interactive move navigation
-   - ⏳ Engine integration (planned)
-   - ⏳ Position evaluation (planned)
-
 ### 🚧 In Development
 
-1. **Engine Analysis**
-   - Stockfish WebAssembly integration
-   - Position evaluation
-   - Best move suggestions
-   - Blunder detection
+1. **Advanced Analysis**
+   - Blunder detection and move classification (e.g., brilliant, inaccuracy)
+   - Opening tree explorer
 
 2. **Advanced Features**
-   - Opening database integration
-   - Export functionality
+   - Export functionality (FEN, etc.)
    - Chess.com/Lichess import
    - Game editing capabilities
 
@@ -144,6 +140,7 @@ saturn/
 - **Styling**: Tailwind CSS with shadcn/ui components
 - **Chess Logic**: chess.js library
 - **Chessboard**: react-chessboard component
+- **Chess Engine**: Stockfish.js (WebAssembly)
 - **Icons**: Lucide React
 - **Build Tool**: Next.js built-in bundler
 - **Package Manager**: npm
@@ -151,10 +148,11 @@ saturn/
 ## Key Components
 
 1. **PgnUpload**: Handles file uploads, text input, and URL loading
-2. **ChessAnalyzer**: Main analysis interface with board and controls
-3. **Sidebar**: Game list and navigation
-4. **Header**: Top navigation and actions
-5. **pgn-utils**: PGN parsing and validation utilities
+2. **ChessAnalyzer**: Main analysis interface with board, controls, and engine analysis display.
+3. **stockfish-utils**: Manages the Stockfish engine instance, including initialization and communication.
+4. **Sidebar**: Game list and navigation
+5. **Header**: Top navigation and actions
+6. **pgn-utils**: PGN parsing and validation utilities
 
 ## Ready to Run
 
@@ -164,7 +162,7 @@ The application is now fully functional with all core features implemented. User
 2. Navigate through multiple games in the sidebar
 3. Use the interactive chessboard with full move navigation
 4. View comprehensive game information
-5. Export and analyze their chess games
+5. Analyze games with the integrated Stockfish engine
 
 To start the development server:
 ```bash

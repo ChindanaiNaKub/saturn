@@ -177,8 +177,8 @@ export function formatPgnHeaders(headers: Record<string, string>): string {
   return formatted
 }
 
-export function formatMovesForDisplay(moves: string[]): { moveNumber: number, white?: string, black?: string }[] {
-  const formattedMoves: { moveNumber: number, white?: string, black?: string }[] = []
+export function formatMovesForDisplay(moves: string[]): { moveNumber: number, white: string, black?: string }[] {
+  const formattedMoves: { moveNumber: number, white: string, black?: string }[] = []
   
   for (let i = 0; i < moves.length; i += 2) {
     formattedMoves.push({
@@ -218,4 +218,21 @@ export function validatePgn(pgnText: string): { isValid: boolean, errors: string
   }
   
   return { isValid: errors.length === 0, errors }
+}
+
+export type MoveClassification = 
+  'brilliant' |
+  'great' |
+  'best' |
+  'excellent' |
+  'good' |
+  'book' |
+  'inaccuracy' |
+  'mistake' |
+  'blunder';
+
+export interface MoveAnalysis {
+  classification: MoveClassification;
+  comment?: string;
+  centipawnLoss: number;
 } 
