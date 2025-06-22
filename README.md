@@ -85,6 +85,31 @@ npm run build
 npm start
 ```
 
+## Deployment
+
+### GitHub Pages (Free Hosting)
+
+This project is configured for static deployment on GitHub Pages:
+
+1. **Push to GitHub**: Ensure your code is pushed to a GitHub repository
+2. **Enable GitHub Pages**: Go to your repository Settings → Pages
+3. **Set Source**: Choose "GitHub Actions" as the source
+4. **Automatic Deployment**: The included GitHub Actions workflow will automatically build and deploy your site when you push to the main branch
+
+Your site will be available at: `https://[username].github.io/[repository-name]`
+
+**Note**: The site is deployed as a static export, so all features work client-side including the Stockfish chess engine analysis.
+
+### Manual Deployment
+
+To build the static files manually:
+
+```bash
+npm run build:static
+```
+
+The static files will be generated in the `out/` directory, which you can deploy to any static hosting service.
+
 ## Usage
 
 ### Uploading Games
