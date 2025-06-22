@@ -182,7 +182,7 @@ export class StockfishEngine {
           this.analysisCallbacks = this.analysisCallbacks.filter(cb => cb !== callback)
         }
         resolve(this.currentAnalysis || { evaluation: 0, depth: 0, bestMove: '', pv: [], nodes: 0 })
-      }, 8000)
+      }, 30000)
     })
   }
 

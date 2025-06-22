@@ -1,3 +1,5 @@
+import { OPENINGS_DATABASE } from './opening-database';
+
 export interface PgnGame {
   headers: Record<string, string>
   moves: string[]
@@ -78,28 +80,27 @@ export function parsePgn(pgnText: string): PgnGame[] {
 
 function parseSingleGame(gameString: string): PgnGame | null {
   try {
-    const lines = gameString.split('\n').map(line => line.trim()).filter(line => line)
-    const headers: Record<string, string> = {}
-    const moveText: string[] = []
-    
-    let inHeaders = true
-    
-    for (const line of lines) {
-      if (inHeaders && line.startsWith('[') && line.endsWith(']')) {
-        // Parse header
-        const match = line.match(/\[(\w+)\s+"([^"]*)"\]/)
-        if (match) {
-          headers[match[1]] = match[2]
-        }
-      } else if (line && !line.startsWith('[')) {
-        inHeaders = false
-        moveText.push(line)
-      }
+    const headers: Record<string, string> = {};
+    let moveText = '';
+
+    // Find all headers
+    const headerRegex = /\[(\w+)\s+"([^"]*)"\]/g;
+    let match;
+    let lastHeaderIndex = -1;
+    while ((match = headerRegex.exec(gameString)) !== null) {
+      headers[match[1]] = match[2];
+      lastHeaderIndex = match.index + match[0].length;
+    }
+
+    if (lastHeaderIndex !== -1) {
+      moveText = gameString.substring(lastHeaderIndex).trim();
+    } else {
+      // No headers found, assume the whole string is movetext
+      moveText = gameString.trim();
     }
     
-    const fullMoveText = moveText.join(' ')
-    const moves = parseMoves(fullMoveText)
-    const result = extractResult(fullMoveText)
+    const moves = parseMoves(moveText)
+    const result = extractResult(moveText)
     
     return {
       headers,
@@ -235,4 +236,50 @@ export interface MoveAnalysis {
   classification: MoveClassification;
   comment?: string;
   centipawnLoss: number;
+}
+
+export interface GameReviewData {
+  white: {
+    accuracy: number;
+    moveCounts: Record<MoveClassification, number>;
+  };
+  black: {
+    accuracy: number;
+    moveCounts: Record<MoveClassification, number>;
+  };
+  evaluationHistory: { move: number; eval: number }[];
+}
+
+/**
+ * Converts a centipawn evaluation to a win percentage.
+ * The formula is from Lichess and is based on real game data.
+ * @param centipawns - The evaluation in centipawns.
+ * @returns The win percentage (0-100).
+ */
+function centipawnsToWinPercent(centipawns: number): number {
+  return 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * centipawns)) - 1);
+}
+
+/**
+ * Calculates the accuracy of a single move based on the change in win percentage.
+ * The formula is from Lichess.
+ * @param winPercentBefore - Win percentage before the move.
+ * @param winPercentAfter - Win percentage after the move.
+ * @returns The accuracy of the move (0-100).
+ */
+export function calculateMoveAccuracy(winPercentBefore: number, winPercentAfter: number): number {
+  const accuracy = 103.1668 * Math.exp(-0.04354 * (winPercentBefore - winPercentAfter)) - 3.1669;
+  return Math.max(0, Math.min(100, accuracy));
+}
+
+export function isOpening(moves: string[]): boolean {
+  return OPENINGS_DATABASE.some(opening => 
+    opening.moves.length >= moves.length &&
+    moves.every((move, index) => move === opening.moves[index])
+  );
+}
+
+export function getOpeningName(eco: string): string {
+  const opening = OPENINGS_DATABASE.find(o => o.eco === eco);
+  return opening ? opening.name : 'Unknown Opening';
 } 

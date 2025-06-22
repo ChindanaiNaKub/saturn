@@ -1,1 +1,1 @@
-self.__REACT_LOADABLE_MANIFEST="{}"
+self.__REACT_LOADABLE_MANIFEST="{\"components/game-review.tsx -> ./evaluation-chart\":{\"id\":\"components/game-review.tsx -> ./evaluation-chart\",\"files\":[\"static/chunks/_app-pages-browser_components_evaluation-chart_tsx.js\"]}}"
