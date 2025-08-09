@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { GameReviewData, MoveClassification } from '@/lib/pgn-utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -30,8 +30,16 @@ const classificationMeta: Record<MoveClassification, { icon: React.ReactNode; la
 };
 
 const GameReview: React.FC<GameReviewProps> = ({ reviewData }) => {
-  const { white, black, evaluationHistory } = reviewData;
+  const { white, black, evaluationHistory, perMove, meta } = reviewData;
   const chartData = evaluationHistory.map(item => ({ name: item.move, uv: item.eval }));
+
+  const topMistakes = useMemo(() => {
+    if (!perMove) return [];
+    return [...perMove]
+      .filter(m => ['inaccuracy','mistake','blunder'].includes(m.classification))
+      .sort((a,b) => b.centipawnLoss - a.centipawnLoss)
+      .slice(0, 5);
+  }, [perMove]);
 
   const renderPlayerStats = (player: 'white' | 'black', data: GameReviewData['white']) => (
     <div className="flex-1">
@@ -65,12 +73,43 @@ const GameReview: React.FC<GameReviewProps> = ({ reviewData }) => {
 
   return (
     <Card>
-      <CardContent className="p-6">
+      <CardContent className="p-6 max-h-[70vh] overflow-y-auto">
+        {meta && (
+          <div className="flex justify-center gap-8 text-sm text-muted-foreground mb-4">
+            <div>White: <span className="font-medium text-foreground">{meta.whiteName || 'White'}</span>{meta.whiteElo ? ` (${meta.whiteElo})` : ''}</div>
+            <div>Black: <span className="font-medium text-foreground">{meta.blackName || 'Black'}</span>{meta.blackElo ? ` (${meta.blackElo})` : ''}</div>
+          </div>
+        )}
         <DynamicEvaluationChart data={chartData} />
         <div className="max-w-4xl mx-auto mt-6">
           <div className="flex gap-8">
             {renderPlayerStats('white', white)}
             {renderPlayerStats('black', black)}
+          </div>
+          {topMistakes.length > 0 && (
+            <div className="mt-8">
+              <h4 className="text-lg font-semibold mb-2">Top mistakes</h4>
+              <ul className="space-y-2 text-sm">
+                {topMistakes.map((m, idx) => (
+                  <li key={idx} className="flex items-center justify-between rounded border p-2">
+                    <span className="font-medium">Move {m.move} · {m.player === 'w' ? 'White' : 'Black'}</span>
+                    <span className={`${classificationMeta[m.classification].color}`}>{classificationMeta[m.classification].label}</span>
+                    <span className="text-muted-foreground">{m.centipawnLoss} cp</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {/* Legend */}
+          <div className="mt-8 text-xs text-muted-foreground">
+            <div className="flex gap-4 flex-wrap">
+              {Object.entries(classificationMeta).map(([key, meta]) => (
+                <div key={key} className="flex items-center gap-1">
+                  <span className={meta.color}>{meta.icon}</span>
+                  <span>{meta.label}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </CardContent>

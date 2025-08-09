@@ -1,8 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'export',
-  basePath: '/saturn',
-  assetPrefix: '/saturn',
   trailingSlash: true,
   images: {
     unoptimized: true

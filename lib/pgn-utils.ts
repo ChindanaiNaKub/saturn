@@ -248,16 +248,30 @@ export interface GameReviewData {
     moveCounts: Record<MoveClassification, number>;
   };
   evaluationHistory: { move: number; eval: number }[];
+  /** Optional per-move breakdown used for UI summaries */
+  perMove?: Array<{
+    move: number; // 1-based ply index
+    player: 'w' | 'b';
+    classification: MoveClassification;
+    centipawnLoss: number;
+    eval: number; // evaluation normalized to White perspective (cp/100)
+  }>;
+  /** Optional meta for display */
+  meta?: {
+    whiteElo?: string;
+    blackElo?: string;
+    whiteName?: string;
+    blackName?: string;
+  };
 }
 
 /**
- * Converts a centipawn evaluation to a win percentage.
- * The formula is from Lichess and is based on real game data.
- * @param centipawns - The evaluation in centipawns.
- * @returns The win percentage (0-100).
+ * Converts a centipawn evaluation to a win percentage (0-100).
+ * Exposed so callers can correctly compute accuracy from engine cp values.
+ * Formula adapted from Lichess data.
  */
-function centipawnsToWinPercent(centipawns: number): number {
-  return 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * centipawns)) - 1);
+export function centipawnsToWinPercent(centipawns: number): number {
+  return 50 + 50 * (2 / (1 + Math.exp(-0.00368208 * centipawns)) - 1)
 }
 
 /**

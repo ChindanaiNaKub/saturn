@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stockfish Test</title>
+</head>
+<body>
+    <h1>Stockfish Engine Test</h1>
+    <div id="status">Loading...</div>
+    <div id="output"></div>
+    
+    <script src="stockfish.js"></script>
+    <script>
+        const statusDiv = document.getElementById('status');
+        const outputDiv = document.getElementById('output');
+        
+        function log(message) {
+            console.log(message);
+            outputDiv.innerHTML += '<div>' + message + '</div>';
+        }
+        
+        statusDiv.textContent = 'Initializing Stockfish...';
+        
+        Stockfish().then(stockfish => {
+            log('Stockfish loaded successfully');
+            
+            stockfish.addMessageListener(message => {
+                log('Received: ' + message);
+                
+                if (message === 'uciok') {
+                    log('UCI protocol ready');
+                    stockfish.postMessage('setoption name Threads value 1');
+                    stockfish.postMessage('setoption name Hash value 16');
+                    stockfish.postMessage('isready');
+                } else if (message === 'readyok') {
+                    log('Engine ready, testing analysis...');
+                    statusDiv.textContent = 'Testing analysis...';
+                    
+                    // Test with starting position
+                    stockfish.postMessage('position startpos');
+                    stockfish.postMessage('go depth 5');
+                } else if (message.startsWith('bestmove')) {
+                    log('Analysis complete: ' + message);
+                    statusDiv.textContent = 'Test successful!';
+                }
+            });
+            
+            stockfish.postMessage('uci');
+        }).catch(error => {
+            log('Error loading Stockfish: ' + error);
+            statusDiv.textContent = 'Error loading Stockfish';
+        });
+    </script>
+</body>
+</html> 

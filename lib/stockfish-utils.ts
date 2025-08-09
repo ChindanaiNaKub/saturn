@@ -25,6 +25,13 @@ export class StockfishEngine {
   private messageQueue: string[] = []
   private initResolve: (() => void) | null = null
   private isAnalyzing = false
+  // Simple in-memory cache to avoid re-analyzing identical positions at the same depth
+  private analysisCache: Map<string, EngineAnalysis> = new Map()
+  // Basic engine info captured from UCI banner and options actually set
+  private engineName: string | null = null
+  private engineAuthor: string | null = null
+  private configuredThreads: number = 1
+  private configuredHashMb: number = 64
 
   async initialize(): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -74,8 +81,29 @@ export class StockfishEngine {
         
         // Send UCI commands to initialize
         this.sendCommand('uci')
-        this.sendCommand('setoption name Threads value 1')
-        this.sendCommand('setoption name Hash value 16')
+        // Configure Threads and Hash aggressively but safely
+        // Threads>1 requires cross-origin isolation and SharedArrayBuffer support
+        try {
+          const cores = typeof navigator !== 'undefined' && (navigator as any).hardwareConcurrency ? (navigator as any).hardwareConcurrency as number : 1
+          const canUseThreads = (typeof (globalThis as any).crossOriginIsolated !== 'undefined') && (globalThis as any).crossOriginIsolated === true
+          this.configuredThreads = canUseThreads ? Math.max(1, Math.min(4, cores)) : 1
+        } catch {
+          this.configuredThreads = 1
+        }
+        this.sendCommand(`setoption name Threads value ${this.configuredThreads}`)
+
+        // Increase Hash for better transposition table reuse across review positions
+        try {
+          const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+          this.configuredHashMb = isMobile ? 64 : 256
+        } catch {
+          this.configuredHashMb = 256
+        }
+        this.sendCommand(`setoption name Hash value ${this.configuredHashMb}`)
+        // Ensure full-strength analysis mode and stable behavior
+        this.sendCommand('setoption name UCI_AnalyseMode value true')
+        this.sendCommand('setoption name UCI_LimitStrength value false')
+        this.sendCommand('setoption name MultiPV value 1')
         this.sendCommand('setoption name Ponder value false')
         this.sendCommand('isready')
         
@@ -108,6 +136,14 @@ export class StockfishEngine {
     
     if (message === 'uciok') {
       logEngine('UCI protocol ready')
+    } else if (message.startsWith('id name ')) {
+      const name = message.slice('id name '.length).trim()
+      this.engineName = name
+      logEngine('Engine name: ' + name)
+    } else if (message.startsWith('id author ')) {
+      const author = message.slice('id author '.length).trim()
+      this.engineAuthor = author
+      logEngine('Engine author: ' + author)
     } else if (message === 'readyok') {
       if (this.initResolve) {
         this.initResolve()
@@ -139,6 +175,15 @@ export class StockfishEngine {
         return
       }
 
+      // Check cache first
+      const cacheKey = `${fen}|d${depth}`
+      const cached = this.analysisCache.get(cacheKey)
+      if (cached && cached.depth >= depth) {
+        logEngine('Cache hit for ' + cacheKey)
+        resolve({ ...cached })
+        return
+      }
+
       if (this.isAnalyzing) {
         this.sendCommand('stop')
       }
@@ -156,6 +201,14 @@ export class StockfishEngine {
         this.isAnalyzing = false
         if (callback) {
           this.analysisCallbacks = this.analysisCallbacks.filter(cb => cb !== callback)
+        }
+        // Save to cache (cap cache size to prevent unbounded growth)
+        if (this.currentAnalysis) {
+          this.analysisCache.set(cacheKey, { ...this.currentAnalysis })
+          if (this.analysisCache.size > 1000) {
+            const firstKey = this.analysisCache.keys().next().value
+            if (firstKey) this.analysisCache.delete(firstKey)
+          }
         }
         resolve(this.currentAnalysis!)
       }
@@ -181,7 +234,14 @@ export class StockfishEngine {
         if (callback) {
           this.analysisCallbacks = this.analysisCallbacks.filter(cb => cb !== callback)
         }
-        resolve(this.currentAnalysis || { evaluation: 0, depth: 0, bestMove: '', pv: [], nodes: 0 })
+        const timedOut = this.currentAnalysis || { evaluation: 0, depth: 0, bestMove: '', pv: [], nodes: 0 }
+        // Store partial result as well to help future calls
+        this.analysisCache.set(cacheKey, { ...timedOut })
+        if (this.analysisCache.size > 1000) {
+          const firstKey = this.analysisCache.keys().next().value
+          if (firstKey) this.analysisCache.delete(firstKey)
+        }
+        resolve(timedOut)
       }, 30000)
     })
   }
@@ -276,6 +336,15 @@ export class StockfishEngine {
 
   isEngineReady(): boolean {
     return this.isReady
+  }
+
+  getEngineInfo(): { name: string | null; author: string | null; threads: number; hashMb: number } {
+    return {
+      name: this.engineName,
+      author: this.engineAuthor,
+      threads: this.configuredThreads,
+      hashMb: this.configuredHashMb,
+    }
   }
 }
 
