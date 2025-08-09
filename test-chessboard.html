@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chessboard Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-container {
+            border: 1px solid #ccc;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+        }
+        .success {
+            color: green;
+        }
+        .error {
+            color: red;
+        }
+        .chessboard-container {
+            margin: 20px 0;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>Chessboard Test Page</h1>
+    
+    <div class="test-container">
+        <h2>JavaScript Console Test</h2>
+        <p>Check the browser console for any errors. The chessboard should load without errors.</p>
+        <div id="console-output"></div>
+    </div>
+
+    <div class="test-container">
+        <h2>Chessboard Component Test</h2>
+        <div id="chessboard-test" class="chessboard-container">
+            <p>Loading chessboard...</p>
+        </div>
+    </div>
+
+    <script>
+        // Capture console errors
+        const consoleOutput = document.getElementById('console-output');
+        const errors = [];
+        
+        const originalError = console.error;
+        const originalWarn = console.warn;
+        
+        console.error = function(...args) {
+            errors.push({ type: 'error', message: args.join(' ') });
+            originalError.apply(console, args);
+            updateConsoleOutput();
+        };
+        
+        console.warn = function(...args) {
+            errors.push({ type: 'warn', message: args.join(' ') });
+            originalWarn.apply(console, args);
+            updateConsoleOutput();
+        };
+        
+        function updateConsoleOutput() {
+            const errorHtml = errors.map(err => 
+                `<div class="${err.type}">${err.type.toUpperCase()}: ${err.message}</div>`
+            ).join('');
+            consoleOutput.innerHTML = errorHtml || '<div class="success">No errors detected</div>';
+        }
+        
+        // Test if required libraries are available
+        function testDependencies() {
+            const tests = [
+                { name: 'React', check: typeof window.React !== 'undefined' },
+                { name: 'ReactDOM', check: typeof window.ReactDOM !== 'undefined' },
+                { name: 'Chess.js', check: typeof window.Chess !== 'undefined' },
+                { name: 'React Chessboard', check: typeof window.Chessboard !== 'undefined' }
+            ];
+            
+            const results = tests.map(test => 
+                `<div class="${test.check ? 'success' : 'error'}">${test.name}: ${test.check ? '✓' : '✗'}</div>`
+            ).join('');
+            
+            document.getElementById('dependencies-test').innerHTML = results;
+        }
+        
+        // Load React and ReactDOM from CDN
+        const script = document.createElement('script');
+        script.src = 'https://unpkg.com/react@18/umd/react.development.js';
+        script.onload = () => {
+            const script2 = document.createElement('script');
+            script2.src = 'https://unpkg.com/react-dom@18/umd/react-dom.development.js';
+            script2.onload = () => {
+                const script3 = document.createElement('script');
+                script3.src = 'https://unpkg.com/chess.js@1.0.0-beta.6/chess.js';
+                script3.onload = () => {
+                    const script4 = document.createElement('script');
+                    script4.src = 'https://unpkg.com/react-chessboard@4.4.0/dist/index.js';
+                    script4.onload = () => {
+                        testDependencies();
+                        // Try to render a simple chessboard
+                        try {
+                            const { useState } = React;
+                            const { Chessboard } = window['react-chessboard'];
+                            
+                            function TestChessboard() {
+                                const [position, setPosition] = useState('start');
+                                
+                                return React.createElement(Chessboard, {
+                                    position: position,
+                                    boardWidth: 400,
+                                    arePiecesDraggable: false
+                                });
+                            }
+                            
+                            const chessboardElement = document.getElementById('chessboard-test');
+                            const root = ReactDOM.createRoot(chessboardElement);
+                            root.render(React.createElement(TestChessboard));
+                            
+                            console.log('Chessboard component loaded successfully');
+                        } catch (error) {
+                            console.error('Error rendering chessboard:', error);
+                            document.getElementById('chessboard-test').innerHTML = 
+                                `<div class="error">Failed to render chessboard: ${error.message}</div>`;
+                        }
+                    };
+                    document.head.appendChild(script4);
+                };
+                document.head.appendChild(script3);
+            };
+            document.head.appendChild(script2);
+        };
+        document.head.appendChild(script);
+    </script>
+    
+    <div class="test-container">
+        <h2>Dependencies Test</h2>
+        <div id="dependencies-test"></div>
+    </div>
+</body>
+</html>
